@@ -1,19 +1,20 @@
 /**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
  * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
  * `Env` object can be regenerated with `npm run cf-typegen`.
- *
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-import { BaseGuildTextChannel } from "discord.js";
+type Book = {
+	"id": string,
+	"title": string,
+	"releaseDate": string,
+	"series": string | null,
+	"length": "Novel" | "Short Story" | "Novella" | "Graphic Novel" | "Bonus Content",
+	"prerequirements": string[],
+	"prerecommendations": string[]
+}
 
-const books = [
+const books: Book[] = [
     {
         "id": "elantris",
         "title": "Elantris",
@@ -73,37 +74,41 @@ const books = [
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url)
-		const path = url.pathname.split("/")
+		const path = url.pathname
+		const parameters = {
+			"id": url.searchParams.get("id"),
+			"series": url.searchParams.get("series"),
+			"length": url.searchParams.get("length")
+		}
 		const method = request.method
-		const response = (body: Object, status: number, headers: Object) => {return new Response(
+		const response = (body: Object, status: number, headers: Record<string, string>) => {return new Response(
 			JSON.stringify(body), {
 				status,
 				headers
 			}
 		)}
-		const response404 = () => {return response({status: `${path.join("/")} Not Found`}, 404, {"Content-Type": "application/json"})}
+		const response404 = () => {return response({status: `${path} Not Found`}, 404, {"Content-Type": "application/json"})}
 		const response405 = () => {return response({status: "Method Not Allowed"}, 405, {"Content-Type": "application/json", "Allow": "GET"})}
-		if (`/${path[1]}/${path[2]}` === "/api/health") {
+		if (path === "/api/health") {
 			return method === "GET" ? response({status: "ok"}, 200, {"Content-Type": "application/json"}) : response405()
-		} else if (`/${path[1]}/${path[2]}` === "/api/books") {
-			if (!path[3]) {
+		} else if (path === "/api/books") {
+			if (!url.searchParams) {
 				return method === "GET" ? response({books}, 200, {"Content-Type": "application/json"}) : response405()
 			} else {
-				let body
-				switch (path[3]) {
-					case "id":
-						body = books.find(book => book.id === path[4])
-						break
-					case "series":
-						body = books.filter(book => book.series ? book.series.slice(0, book.series.lastIndexOf(" ")) === decodeURIComponent(path[4]) : null)
-						break
-					default:
-						return response404()
+				let body = books
+				if (parameters.id) {
+					body = body.filter(book => book.id === parameters.id)
 				}
-				return !body ? response404() : response({books: body}, 200, {"Content-Type": "application/json"})
+				if (parameters.series) {
+					body = body.filter(book => book.series ? book.series.slice(0, book.series.lastIndexOf(" ")) === parameters.series : null)
+				}
+				if (parameters.length) {
+					body = body.filter(book => book.length === parameters.length)
+				}
+				return response({books: body}, 200, {"Content-Type": "application/json"})
 			}
 		} else {
 			return response404()
 		}
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env>
