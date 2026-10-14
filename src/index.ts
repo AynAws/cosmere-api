@@ -13,6 +13,27 @@
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		return new Response("Hello World!");
+		const url = new URL(request.url)
+		const method = request.method
+		if (url.pathname === "/api/health") {
+			return method === "GET" ? new Response(
+				JSON.stringify({ status: "ok" }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" }
+				}
+			) : new Response(
+				JSON.stringify({ status: "Method Not Allowed" }), {
+					status: 405,
+					headers: { "Content-Type": "application/json", "Allow": "GET" }
+				}
+			)
+		} else {
+			return new Response(
+				JSON.stringify({ status: `${url.pathname} Not Found` }), {
+					status: 404,
+					headers: {"Content-Type": "application/json"}
+				}
+			)
+		}
 	},
 } satisfies ExportedHandler<Env>;
