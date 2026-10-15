@@ -4,12 +4,14 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+const lengths = ["Novel", "Short Story", "Novella", "Graphic Novel", "Bonus Content"] as const
+type Length = (typeof lengths)[number]
 type Book = {
 	"id": string,
 	"title": string,
 	"releaseDate": string,
 	"series": string | null,
-	"length": "Novel" | "Short Story" | "Novella" | "Graphic Novel" | "Bonus Content",
+	"length": Length,
 	"prerequirements": string[],
 	"prerecommendations": string[]
 }
@@ -73,40 +75,51 @@ const books: Book[] = [
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		const url = new URL(request.url)
-		const path = url.pathname
-		const parameters = {
-			"id": url.searchParams.get("id"),
-			"series": url.searchParams.get("series"),
-			"length": url.searchParams.get("length")
-		}
-		const method = request.method
+		// new Response(...) as a function for readability
 		const response = (body: Object, status: number, headers: Record<string, string>) => {return new Response(
 			JSON.stringify(body), {
 				status,
 				headers
 			}
 		)}
+		// premade responses:
+		const response400 = (message:string, allowed?: readonly string[]) => {return response({status: `Bad Request: ${message}`, allowed}, 400, {"Content-Type": "application/json"})}
 		const response404 = () => {return response({status: `${path} Not Found`}, 404, {"Content-Type": "application/json"})}
 		const response405 = () => {return response({status: "Method Not Allowed"}, 405, {"Content-Type": "application/json", "Allow": "GET"})}
+		// breaking down request
+		const url = new URL(request.url)
+		const path = url.pathname
+
+		const method = request.method
+		// API only allows GET
+		if (method !== "GET") {return response405()}
+		// handle GET request
 		if (path === "/api/health") {
-			return method === "GET" ? response({status: "ok"}, 200, {"Content-Type": "application/json"}) : response405()
+			return response({status: "ok"}, 200, {"Content-Type": "application/json"})
 		} else if (path === "/api/books") {
-			if (!url.searchParams) {
-				return method === "GET" ? response({books}, 200, {"Content-Type": "application/json"}) : response405()
-			} else {
-				let body = books
-				if (parameters.id) {
-					body = body.filter(book => book.id === parameters.id)
-				}
-				if (parameters.series) {
-					body = body.filter(book => book.series ? book.series.slice(0, book.series.lastIndexOf(" ")) === parameters.series : null)
-				}
-				if (parameters.length) {
-					body = body.filter(book => book.length === parameters.length)
-				}
-				return response({books: body}, 200, {"Content-Type": "application/json"})
+			const parameters = {
+				"id": url.searchParams.get("id"),
+				"series": url.searchParams.get("series"),
+				"length": url.searchParams.get("length")
 			}
+			const allowedParams = Object.keys(parameters)
+			for (const param of url.searchParams.keys()) {
+				if (!(allowedParams.includes(param))) {
+					return response400(`${param} is not a valid parameter`, allowedParams)
+				}
+			}
+			let body = books
+			if (parameters.id) {
+				body = body.filter(book => book.id === parameters.id)
+			}
+			if (parameters.series) {
+				body = body.filter(book => book.series ? book.series.slice(0, book.series.lastIndexOf(" ")) === parameters.series : false)
+			}
+			if (parameters.length) {
+				if (!(lengths as readonly string[]).includes(parameters.length)) {return response400("Invalid Length", lengths)}
+				body = body.filter(book => book.length === parameters.length)
+			}
+			return response({books: body}, 200, {"Content-Type": "application/json"})
 		} else {
 			return response404()
 		}
