@@ -5,73 +5,28 @@
  */
 
 const lengths = ["Novel", "Short Story", "Novella", "Graphic Novel", "Bonus Content"] as const
+const isLength = (value: string): value is Length => (lengths as readonly string[]).includes(value)
 type Length = (typeof lengths)[number]
+
 type Book = {
 	"id": string,
 	"title": string,
 	"releaseDate": string,
-	"series": string | null,
-	"length": Length,
-	"prerequirements": string[],
-	"prerecommendations": string[]
+	"seriesName": string | null,
+	"seriesOrder": number | null,
+	"length": Length//,
+	//"prerequirements": string[],
+	//"prerecommendations": string[]
 }
-
-const books: Book[] = [
-    {
-        "id": "elantris",
-        "title": "Elantris",
-        "releaseDate": "2005-05-01",
-        "series": "Elantris 1",
-        "length": "Novel",
-        "prerequirements": [],
-        "prerecommendations": []
-    },
-    {
-        "id": "hope-of-elantris",
-        "title": "The Hope of Elantris",
-        "releaseDate": "2006-01-01",
-        "series": "Elantris 1.5",
-        "length": "Short Story",
-        "prerequirements": ["elantris"],
-        "prerecommendations": []
-    },
-    {
-        "id": "mistborn-final-empire",
-        "title": "Mistborn: The Final Empire",
-        "releaseDate": "2006-07-17",
-        "series": "Mistborn (Era 1) 1",
-        "length": "Novel",
-        "prerequirements": [],
-        "prerecommendations": []
-    },
-    {
-        "id": "mistborn-well-of-ascension",
-        "title": "The Well of Ascension",
-        "releaseDate": "2007-08-21",
-        "series": "Mistborn (Era 1) 2",
-        "length": "Novel",
-        "prerequirements": ["mistborn-final-empire"],
-        "prerecommendations": []
-    },
-    {
-        "id": "mistborn-hero-of-ages",
-        "title": "The Hero of Ages",
-        "releaseDate": "2008-10-14",
-        "series": "Mistborn (Era 1) 3",
-        "length": "Novel",
-        "prerequirements": ["mistborn-well-of-ascension"],
-        "prerecommendations": []
-    },
-    {
-        "id": "warbreaker",
-        "title": "Warbreaker",
-        "releaseDate": "2009-06-09",
-        "series": null,
-        "length": "Novel",
-        "prerequirements": [],
-        "prerecommendations": []
-    }
-]
+type BookRow = {id: string, title: string, release_date: string, series_name: string | null, series_order: number | null, length: Length}
+const toBook = (row: BookRow): Book => ({
+	"id": row.id,
+	"title": row.title,
+	"releaseDate": row.release_date,
+	"seriesName": row.series_name,
+	"seriesOrder": row.series_order,
+	"length": row.length
+})
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
@@ -89,7 +44,6 @@ export default {
 		// breaking down request
 		const url = new URL(request.url)
 		const path = url.pathname
-
 		const method = request.method
 		// API only allows GET
 		if (method !== "GET") {return response405()}
@@ -99,27 +53,34 @@ export default {
 		} else if (path === "/api/books") {
 			const parameters = {
 				"id": url.searchParams.get("id"),
-				"series": url.searchParams.get("series"),
+				"series_name": url.searchParams.get("series_name"),
 				"length": url.searchParams.get("length")
 			}
+			// make sure parameters are recognized
 			const allowedParams = Object.keys(parameters)
 			for (const param of url.searchParams.keys()) {
 				if (!(allowedParams.includes(param))) {
 					return response400(`${param} is not a valid parameter`, allowedParams)
 				}
 			}
-			let body = books
-			if (parameters.id) {
-				body = body.filter(book => book.id === parameters.id)
+			// make sure length's value is recognized
+			if (parameters.length !== null && !isLength(parameters.length)) {return response400("Invalid Length", lengths)}
+			// books array from DB
+			const properties = Object.entries(parameters).filter(([key, value]) => value !== null)
+			let values: string[] = []
+			let getSQL = "SELECT id, title, release_date, series_name, series_order, length FROM books"
+			if (properties.length > 0) {
+				let arr:string[] = []
+				for (const [key, value] of properties) {
+					arr.push(`${key} = ?`)
+					if (value !== null) values.push(value)
+				}
+				getSQL += " WHERE " + arr.join(" AND ")
 			}
-			if (parameters.series) {
-				body = body.filter(book => book.series ? book.series.slice(0, book.series.lastIndexOf(" ")) === parameters.series : false)
-			}
-			if (parameters.length) {
-				if (!(lengths as readonly string[]).includes(parameters.length)) {return response400("Invalid Length", lengths)}
-				body = body.filter(book => book.length === parameters.length)
-			}
-			return response({books: body}, 200, {"Content-Type": "application/json"})
+			const booksSQL = (await env.DB.prepare(getSQL).bind(...values).all<BookRow>()).results
+			// convert SQL to JSON
+			const books = booksSQL.map(toBook)
+			return response({books}, 200, {"Content-Type": "application/json"})
 		} else {
 			return response404()
 		}
